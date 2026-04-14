@@ -5,7 +5,11 @@
 
 A custom Lovelace card for Home Assistant that displays a live status panel for GE Profile front-load washers connected via the SmartHQ integration.
 
-![GE Washer Card](https://raw.githubusercontent.com/ChrisCaho/ge-washer-card/main/screenshot.png)
+![GE Washer Card — Normal Wash (Fill)](ge-washer-card-wash-normal.jpg)
+
+![GE Washer Card — Warm Wash](ge-washer-card-warm-wash.jpg)
+
+![GE Washer Card — Off](ge-washer-card-off.jpg)
 
 > Looking for all GE appliance cards in one package? Check out [GE Appliances Card](https://github.com/ChrisCaho/ge-appliances-card), a bundle containing the washer, dryer, and dishwasher cards together.
 
