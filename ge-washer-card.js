@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.1.0';
+const GE_WASHER_CARD_VERSION = '1.2.0';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -33,6 +33,13 @@ class GeWasherCard extends HTMLElement {
   _getState(suffix) {
     if (!this._hass) return null;
     const entity = this._hass.states[`${this._config.prefix}_${suffix}`];
+    return entity ? entity.state : null;
+  }
+
+  _getBinary(suffix) {
+    if (!this._hass) return null;
+    const binaryId = this._config.prefix.replace('sensor.', 'binary_sensor.') + '_' + suffix;
+    const entity = this._hass.states[binaryId];
     return entity ? entity.state : null;
   }
 
@@ -71,6 +78,12 @@ class GeWasherCard extends HTMLElement {
     const rinseOption = this._getState('washer_rinse_option') || '---';
     const dispensLoads = this._getState('washer_smart_dispense_loads_left');
     const dispensTank = this._getState('washer_smart_dispense_tank_status') || '--';
+
+    // Binary sensors
+    const doorOpen = this._getBinary('door') === 'on';
+    const doorLocked = this._getBinary('washer_door_lock') === 'on';
+    const prewash = this._getBinary('washer_prewash') === 'on';
+    const remoteReady = this._getBinary('remote_status') === 'on';
 
     const isActive = machineState.toLowerCase() !== 'off';
     const isDelay = delayRemaining && parseFloat(delayRemaining) > 0;
@@ -264,6 +277,24 @@ class GeWasherCard extends HTMLElement {
           box-shadow: 2px 2px 4px rgba(0,0,0,0.4);
         }
 
+        /* Door status icons */
+        .door-icons {
+          position: absolute; bottom: 12px; right: 12px;
+          display: flex; gap: 6px; z-index: 5;
+        }
+        .door-icon {
+          font-size: 14px; opacity: 0.4;
+        }
+        .door-icon.open { opacity: 1; color: #ffaa33; }
+        .door-icon.locked { opacity: 1; color: #4caf50; }
+
+        /* LCD badge for prewash */
+        .lcd-badge {
+          font-family: 'Courier New', monospace; font-size: 10px;
+          color: #55aaee; text-shadow: 0 0 4px rgba(85,170,238,0.4);
+          letter-spacing: 1px; text-transform: uppercase;
+        }
+
         /* Water level indicator (washer-specific) */
         .water-level {
           position: absolute; bottom: 8px; left: 8px; right: 8px;
@@ -338,7 +369,10 @@ class GeWasherCard extends HTMLElement {
               </div>
               <div class="lcd-row">
                 <span class="lcd-sub ${isActive ? '' : 'off'}">${isActive ? (subCycle !== '---' ? subCycle : machineState) : machineState}</span>
-                ${isActive ? `<span class="lcd-state">${washTemp}</span>` : ''}
+                <span>
+                  ${prewash ? '<span class="lcd-badge">PRE </span>' : ''}
+                  ${isActive ? `<span class="lcd-state">${washTemp}</span>` : ''}
+                </span>
               </div>
             </div>
           </div>
@@ -360,6 +394,10 @@ class GeWasherCard extends HTMLElement {
                 </div>
               </div>
               <div class="door-handle"></div>
+              <div class="door-icons">
+                ${doorOpen ? '<span class="door-icon open" title="Door Open">🚪</span>' : ''}
+                ${doorLocked ? '<span class="door-icon locked" title="Door Locked">🔒</span>' : ''}
+              </div>
             </div>
 
             <div class="sensor-grid">
