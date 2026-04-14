@@ -93,7 +93,25 @@ The card discovers all of its sensors automatically from a single prefix string.
 
 ## Entity Requirements
 
-All entities are auto-discovered by appending the suffixes listed below to your configured prefix. Binary sensors are found by replacing `sensor.` with `binary_sensor.` in the prefix automatically.
+### How Entity Discovery Works
+
+The card only needs one config value — the `prefix`. It automatically discovers all other entities by appending suffixes to the prefix. **No manual sensor configuration is required.** If a derived entity does not exist, the corresponding field gracefully shows "--" or hides.
+
+The card reads from two HA entity domains using one config value:
+
+- **`sensor.*`** — all cycle, timer, temperature, and dispense sensors (prefix + suffix)
+- **`binary_sensor.*`** — door, lock, and prewash states (prefix with `sensor.` swapped to `binary_sensor.` + suffix)
+
+The naming rule: the `prefix` is the portion of the entity ID that is shared by all related entities, up to but not including the first feature-specific suffix. The card appends an underscore and the suffix to build each full entity ID.
+
+**Example:** Given `prefix: sensor.hasvr1_ge_washer_laundry`, the card builds:
+
+| Domain | Suffix | Full Entity ID | Used For |
+|--------|--------|----------------|----------|
+| `sensor.` | `_machine_state` | `sensor.hasvr1_ge_washer_laundry_machine_state` | Machine state (Off, Running, etc.) |
+| `sensor.` | `_cycle` | `sensor.hasvr1_ge_washer_laundry_cycle` | Active cycle name |
+| `binary_sensor.` | `_door` | `binary_sensor.hasvr1_ge_washer_laundry_door` | Door open icon near drum |
+| `binary_sensor.` | `_washer_door_lock` | `binary_sensor.hasvr1_ge_washer_laundry_washer_door_lock` | Door lock icon |
 
 ### Sensors (prefix + suffix)
 
@@ -112,6 +130,8 @@ All entities are auto-discovered by appending the suffixes listed below to your 
 | `_washer_smart_dispense_tank_status`  | Smart Dispense tank fill status             |
 
 ### Binary Sensors (binary_sensor prefix + suffix)
+
+The binary sensor entity ID is formed by replacing `sensor.` with `binary_sensor.` in the prefix, then appending the suffix.
 
 | Suffix                | Description                                             |
 |-----------------------|---------------------------------------------------------|
