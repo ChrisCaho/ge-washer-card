@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.0.0';
+const GE_WASHER_CARD_VERSION = '1.1.0';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -73,6 +73,7 @@ class GeWasherCard extends HTMLElement {
     const dispensTank = this._getState('washer_smart_dispense_tank_status') || '--';
 
     const isActive = machineState.toLowerCase() !== 'off';
+    const isDelay = delayRemaining && parseFloat(delayRemaining) > 0;
     const isSpin = subCycle.toLowerCase().includes('spin');
     const isRinse = subCycle.toLowerCase().includes('rinse');
     const tc = this._tempColor(washTemp);
@@ -332,8 +333,8 @@ class GeWasherCard extends HTMLElement {
           <div class="lcd-bezel">
             <div class="lcd-screen ${isActive ? 'active' : ''}">
               <div class="lcd-row main">
-                <span class="lcd-cycle ${isActive ? '' : 'off'}">${isActive ? cycle : 'OFF'}</span>
-                ${isActive && timeRemaining ? `<span class="lcd-time">${this._formatTime(timeRemaining)}</span>` : ''}
+                <span class="lcd-cycle ${isActive ? '' : 'off'}">${isDelay ? 'DELAY' : (isActive ? cycle : 'OFF')}</span>
+                ${isDelay ? `<span class="lcd-time">${this._formatTime(delayRemaining)}</span>` : (isActive && timeRemaining ? `<span class="lcd-time">${this._formatTime(timeRemaining)}</span>` : '')}
               </div>
               <div class="lcd-row">
                 <span class="lcd-sub ${isActive ? '' : 'off'}">${isActive ? (subCycle !== '---' ? subCycle : machineState) : machineState}</span>
@@ -384,7 +385,7 @@ class GeWasherCard extends HTMLElement {
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Loads Left</span>
-                <span class="sensor-value">${dispensLoads != null && dispensLoads !== '255' ? dispensLoads : '--'}</span>
+                <span class="sensor-value">${dispensLoads != null ? dispensLoads : '--'}</span>
               </div>
             </div>
           </div>
