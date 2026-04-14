@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.3.0';
+const GE_WASHER_CARD_VERSION = '1.4.0';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -89,6 +89,9 @@ class GeWasherCard extends HTMLElement {
     const isDelay = delayRemaining && parseFloat(delayRemaining) > 0;
     const isSpin = subCycle.toLowerCase().includes('spin');
     const isRinse = subCycle.toLowerCase().includes('rinse');
+    const isFill = subCycle.toLowerCase() === 'fill';
+    // Door lock sensor is unreliable — assume locked when running with door closed
+    const isLocked = doorLocked || (isActive && !doorOpen);
     const tc = this._tempColor(washTemp);
     const name = this._config.name;
 
@@ -281,12 +284,25 @@ class GeWasherCard extends HTMLElement {
           box-shadow: 2px 2px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 153, 51, 0.4);
         }
 
-        /* Door lock icon */
-        .door-icons {
-          position: absolute; bottom: 12px; right: 12px;
-          display: flex; gap: 6px; z-index: 5;
+        /* Door lock icon — positioned right of handle */
+        .lock-icon {
+          position: absolute; top: 50%; right: -28px; transform: translateY(-50%);
+          font-size: 12px; color: #4caf50; z-index: 5;
+          filter: drop-shadow(0 0 4px rgba(76, 175, 80, 0.5));
         }
-        .door-icon.locked { font-size: 14px; opacity: 1; color: #4caf50; }
+
+        /* Water fill icon — top-left inside drum glass */
+        .fill-icon {
+          position: absolute; top: 14px; left: 16px;
+          font-size: 16px; z-index: 5;
+          color: #55aaee;
+          filter: drop-shadow(0 0 6px rgba(85, 170, 238, 0.6));
+          animation: fillPulse 1.5s ease-in-out infinite;
+        }
+        @keyframes fillPulse {
+          0%, 100% { opacity: 0.7; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.1); }
+        }
 
         /* LCD badge for prewash */
         .lcd-badge {
@@ -382,6 +398,7 @@ class GeWasherCard extends HTMLElement {
               <div class="door-ring"></div>
               <div class="glow-ring ${isActive ? 'active' : ''}"></div>
               <div class="door-glass ${isActive ? 'active' : ''}">
+                ${isFill ? '<span class="fill-icon" title="Filling">💧</span>' : ''}
                 <div class="water-level ${isActive && !isSpin ? 'active' : ''}"></div>
                 <div class="drum-inner">
                   <div class="perf-ring"></div>
@@ -394,7 +411,7 @@ class GeWasherCard extends HTMLElement {
                 </div>
               </div>
               <div class="door-handle ${doorOpen ? 'open' : ''}"></div>
-              ${doorLocked ? '<div class="door-icons"><span class="door-icon locked" title="Door Locked">🔒</span></div>' : ''}
+              ${isLocked ? '<span class="lock-icon" title="Door Locked">🔒</span>' : ''}
             </div>
 
             <div class="sensor-grid">
