@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.2.0';
+const GE_WASHER_CARD_VERSION = '1.3.0';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -276,17 +276,17 @@ class GeWasherCard extends HTMLElement {
           background: linear-gradient(90deg, #666 0%, #444 50%, #555 100%);
           box-shadow: 2px 2px 4px rgba(0,0,0,0.4);
         }
+        .door-handle.open {
+          background: linear-gradient(90deg, #ff9933 0%, #cc7722 50%, #ff9933 100%);
+          box-shadow: 2px 2px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 153, 51, 0.4);
+        }
 
-        /* Door status icons */
+        /* Door lock icon */
         .door-icons {
           position: absolute; bottom: 12px; right: 12px;
           display: flex; gap: 6px; z-index: 5;
         }
-        .door-icon {
-          font-size: 14px; opacity: 0.4;
-        }
-        .door-icon.open { opacity: 1; color: #ffaa33; }
-        .door-icon.locked { opacity: 1; color: #4caf50; }
+        .door-icon.locked { font-size: 14px; opacity: 1; color: #4caf50; }
 
         /* LCD badge for prewash */
         .lcd-badge {
@@ -393,11 +393,8 @@ class GeWasherCard extends HTMLElement {
                   <div class="hub"></div>
                 </div>
               </div>
-              <div class="door-handle"></div>
-              <div class="door-icons">
-                ${doorOpen ? '<span class="door-icon open" title="Door Open">🚪</span>' : ''}
-                ${doorLocked ? '<span class="door-icon locked" title="Door Locked">🔒</span>' : ''}
-              </div>
+              <div class="door-handle ${doorOpen ? 'open' : ''}"></div>
+              ${doorLocked ? '<div class="door-icons"><span class="door-icon locked" title="Door Locked">🔒</span></div>' : ''}
             </div>
 
             <div class="sensor-grid">
