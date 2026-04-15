@@ -11,7 +11,7 @@ A custom Lovelace card for Home Assistant that displays a live status panel for 
 
 ![GE Washer Card — Off](ge-washer-card-off.jpg)
 
-> Looking for all GE appliance cards in one package? Check out [GE Appliances Card](https://github.com/ChrisCaho/ge-appliances-card), a bundle containing the washer, dryer, and dishwasher cards together.
+> **Looking for all GE appliance cards in one package?** Check out [GE Appliances Card](https://github.com/ChrisCaho/ge-appliances-card) — a bundle containing oven, washer, and dryer cards.
 
 ---
 
