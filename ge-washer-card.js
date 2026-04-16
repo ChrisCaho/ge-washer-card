@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.4.0';
+const GE_WASHER_CARD_VERSION = '1.4.1';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -7,6 +7,7 @@ class GeWasherCard extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._hass = null;
     this._config = null;
+    this._rendered = false;
   }
 
   setConfig(config) {
@@ -17,11 +18,12 @@ class GeWasherCard extends HTMLElement {
       prefix: config.prefix.replace(/\/$/, ''),
       name: config.name || 'GE Washer',
     };
+    this._rendered = false;
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._render();
+    this._update();
   }
 
   getCardSize() { return 7; }
@@ -64,9 +66,8 @@ class GeWasherCard extends HTMLElement {
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
-  _render() {
-    if (!this._hass || !this._config) return;
-
+  // Gather all display data from current state
+  _getDisplayData() {
     const machineState = this._getState('machine_state') || 'Off';
     const cycle = this._getState('cycle') || '--';
     const subCycle = this._getState('sub_cycle') || '---';
@@ -79,35 +80,54 @@ class GeWasherCard extends HTMLElement {
     const dispensLoads = this._getState('washer_smart_dispense_loads_left');
     const dispensTank = this._getState('washer_smart_dispense_tank_status') || '--';
 
-    // Binary sensors
     const doorOpen = this._getBinary('door') === 'on';
     const doorLocked = this._getBinary('washer_door_lock') === 'on';
     const prewash = this._getBinary('washer_prewash') === 'on';
-    const remoteReady = this._getBinary('remote_status') === 'on';
 
     const isActive = machineState.toLowerCase() !== 'off';
     const isDelay = delayRemaining && parseFloat(delayRemaining) > 0;
     const isSpin = subCycle.toLowerCase().includes('spin');
     const isRinse = subCycle.toLowerCase().includes('rinse');
     const isFill = subCycle.toLowerCase() === 'fill';
-    // Door lock sensor is unreliable — assume locked when running with door closed
     const isLocked = doorLocked || (isActive && !doorOpen);
     const tc = this._tempColor(washTemp);
-    const name = this._config.name;
 
-    // Drum animation speed
-    let drumAnim = 'none';
-    let agitatorAnim = 'none';
-    if (isActive) {
-      if (isSpin) {
-        drumAnim = 'drumSpin 1.5s linear infinite';
-        agitatorAnim = 'drumSpin 1.5s linear infinite';
-      } else {
-        drumAnim = 'none';
-        agitatorAnim = 'agitate 2s ease-in-out infinite';
-      }
+    // Drum animation classes
+    let drumClass = 'drum-inner';
+    let agitatorClass = 'agitator';
+    if (isActive && isSpin) {
+      drumClass += ' spinning';
+      agitatorClass += ' spinning';
+    } else if (isActive) {
+      agitatorClass += ' agitating';
     }
 
+    // LCD text
+    let lcdCycleText = isDelay ? 'DELAY' : (isActive ? cycle : 'OFF');
+    let lcdTimeText = '';
+    if (isDelay) {
+      lcdTimeText = this._formatTime(delayRemaining);
+    } else if (isActive && timeRemaining) {
+      lcdTimeText = this._formatTime(timeRemaining);
+    }
+    let lcdSubText = isActive ? (subCycle !== '---' ? subCycle : machineState) : machineState;
+
+    return {
+      isActive, isDelay, isSpin, isRinse, isFill, isLocked,
+      doorOpen, prewash,
+      tc,
+      drumClass, agitatorClass,
+      lcdCycleText, lcdTimeText, lcdSubText,
+      washTemp, spinTime, soilLevel,
+      rinseOption: rinseOption !== '---' ? rinseOption : '--',
+      dispensTank,
+      dispensLoads: dispensLoads != null ? dispensLoads : '--',
+      dispensTankWarn: dispensTank !== 'Full',
+    };
+  }
+
+  // Build initial DOM (called once)
+  _buildDom() {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
@@ -172,6 +192,13 @@ class GeWasherCard extends HTMLElement {
           color: #55aaee; text-shadow: 0 0 4px rgba(85,170,238,0.4);
         }
 
+        /* LCD badge for prewash */
+        .lcd-badge {
+          font-family: 'Courier New', monospace; font-size: 10px;
+          color: #55aaee; text-shadow: 0 0 4px rgba(85,170,238,0.4);
+          letter-spacing: 1px; text-transform: uppercase;
+        }
+
         /* Machine body */
         .machine-body {
           border: 2px solid #3a3a40; border-radius: 14px;
@@ -191,7 +218,7 @@ class GeWasherCard extends HTMLElement {
           background: conic-gradient(from 0deg, #555, #777, #999, #888, #666, #555);
           box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3);
         }
-        /* Door glass */
+        /* Door glass — uses CSS custom properties for dynamic color */
         .door-glass {
           position: absolute; top: 8px; left: 8px; right: 8px; bottom: 8px;
           border-radius: 50%;
@@ -200,25 +227,34 @@ class GeWasherCard extends HTMLElement {
           overflow: hidden;
         }
         .door-glass.active {
-          background: radial-gradient(circle at 40% 40%, ${tc.color}22 0%, ${tc.color}11 40%, #0d0d10 100%);
-          box-shadow: inset 0 0 40px ${tc.glow}, inset 0 4px 16px rgba(0,0,0,0.4);
+          background: radial-gradient(circle at 40% 40%, var(--tc-color-22) 0%, var(--tc-color-11) 40%, #0d0d10 100%);
+          box-shadow: inset 0 0 40px var(--tc-glow), inset 0 4px 16px rgba(0,0,0,0.4);
         }
 
-        /* Inner drum with agitator */
+        /* Inner drum */
         .drum-inner {
           position: absolute; top: 16px; left: 16px; right: 16px; bottom: 16px;
           border-radius: 50%;
           border: 1px solid rgba(255,255,255,0.05);
-          animation: ${drumAnim};
+        }
+        .drum-inner.spinning {
+          animation: drumSpin 1.5s linear infinite;
         }
 
-        /* Agitator paddles */
+        /* Agitator */
         .agitator {
           position: absolute; top: 50%; left: 50%;
           width: 100%; height: 100%;
           transform: translate(-50%, -50%);
-          animation: ${agitatorAnim};
         }
+        .agitator.spinning {
+          animation: drumSpin 1.5s linear infinite;
+        }
+        .agitator.agitating {
+          animation: agitate 2s ease-in-out infinite;
+        }
+
+        /* Paddles */
         .paddle {
           position: absolute; top: 50%; left: 50%;
           width: 4px; height: 40%;
@@ -229,7 +265,9 @@ class GeWasherCard extends HTMLElement {
         .paddle:nth-child(1) { transform: translate(-50%, 0) rotate(0deg); }
         .paddle:nth-child(2) { transform: translate(-50%, 0) rotate(120deg); }
         .paddle:nth-child(3) { transform: translate(-50%, 0) rotate(240deg); }
-        .paddle.active { background: linear-gradient(180deg, ${tc.color}55 0%, ${tc.color}22 100%); }
+        .paddle.active {
+          background: linear-gradient(180deg, var(--tc-color-55) 0%, var(--tc-color-22) 100%);
+        }
 
         /* Drum perforations */
         .perf-ring {
@@ -255,7 +293,7 @@ class GeWasherCard extends HTMLElement {
           50% { transform: translate(-50%, -50%) rotate(15deg); }
         }
 
-        /* Temperature glow ring */
+        /* Temperature glow ring — uses CSS custom properties */
         .glow-ring {
           position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px;
           border-radius: 50%; border: 2px solid transparent;
@@ -263,8 +301,8 @@ class GeWasherCard extends HTMLElement {
         }
         .glow-ring.active {
           display: block;
-          border-color: ${tc.color}66;
-          box-shadow: 0 0 15px ${tc.glow}, inset 0 0 15px ${tc.glow};
+          border-color: var(--tc-color-66);
+          box-shadow: 0 0 15px var(--tc-glow), inset 0 0 15px var(--tc-glow);
           animation: glowPulse 3s ease-in-out infinite;
         }
         @keyframes glowPulse {
@@ -284,38 +322,35 @@ class GeWasherCard extends HTMLElement {
           box-shadow: 2px 2px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255, 153, 51, 0.4);
         }
 
-        /* Door lock icon — positioned right of handle */
+        /* Door lock icon */
         .lock-icon {
           position: absolute; top: 50%; right: -28px; transform: translateY(-50%);
           font-size: 12px; color: #4caf50; z-index: 5;
           filter: drop-shadow(0 0 4px rgba(76, 175, 80, 0.5));
+          display: none;
         }
+        .lock-icon.visible { display: block; }
 
-        /* Water fill icon — top-left inside drum glass */
+        /* Water fill icon */
         .fill-icon {
           position: absolute; top: 14px; left: 16px;
           font-size: 16px; z-index: 5;
           color: #55aaee;
           filter: drop-shadow(0 0 6px rgba(85, 170, 238, 0.6));
           animation: fillPulse 1.5s ease-in-out infinite;
+          display: none;
         }
+        .fill-icon.visible { display: block; }
         @keyframes fillPulse {
           0%, 100% { opacity: 0.7; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.1); }
         }
 
-        /* LCD badge for prewash */
-        .lcd-badge {
-          font-family: 'Courier New', monospace; font-size: 10px;
-          color: #55aaee; text-shadow: 0 0 4px rgba(85,170,238,0.4);
-          letter-spacing: 1px; text-transform: uppercase;
-        }
-
-        /* Water level indicator (washer-specific) */
+        /* Water level indicator — uses CSS custom properties */
         .water-level {
           position: absolute; bottom: 8px; left: 8px; right: 8px;
           height: 0; border-radius: 0 0 50% 50%;
-          background: linear-gradient(180deg, ${tc.color}15 0%, ${tc.color}08 100%);
+          background: linear-gradient(180deg, var(--tc-color-15) 0%, var(--tc-color-08) 100%);
           transition: height 0.5s ease;
           display: none;
         }
@@ -343,23 +378,8 @@ class GeWasherCard extends HTMLElement {
           color: #999; margin-bottom: 1px;
         }
         .sensor-value { font-size: 11px; font-weight: 500; color: #e0e0e0; }
-        .sensor-value.highlight { color: ${tc.color}; }
+        .sensor-value.highlight { color: var(--tc-color); }
         .sensor-value.warn { color: #ff9944; }
-
-        /* Dispenser indicator */
-        .dispenser {
-          display: flex; align-items: center; gap: 4px;
-          font-size: 10px;
-        }
-        .dispenser-bar {
-          flex: 1; height: 4px; background: rgba(255,255,255,0.1);
-          border-radius: 2px; overflow: hidden;
-        }
-        .dispenser-fill {
-          height: 100%; border-radius: 2px;
-          background: #4caf50;
-          transition: width 0.3s;
-        }
 
         /* Footer */
         .footer {
@@ -374,20 +394,20 @@ class GeWasherCard extends HTMLElement {
         <div class="body">
           <div class="top-bar">
             <span class="brand">GE Profile</span>
-            <span class="name">${name}</span>
+            <span class="name" data-field="name"></span>
           </div>
 
           <div class="lcd-bezel">
-            <div class="lcd-screen ${isActive ? 'active' : ''}">
+            <div class="lcd-screen" data-field="lcdScreen">
               <div class="lcd-row main">
-                <span class="lcd-cycle ${isActive ? '' : 'off'}">${isDelay ? 'DELAY' : (isActive ? cycle : 'OFF')}</span>
-                ${isDelay ? `<span class="lcd-time">${this._formatTime(delayRemaining)}</span>` : (isActive && timeRemaining ? `<span class="lcd-time">${this._formatTime(timeRemaining)}</span>` : '')}
+                <span class="lcd-cycle" data-field="lcdCycle"></span>
+                <span class="lcd-time" data-field="lcdTime"></span>
               </div>
               <div class="lcd-row">
-                <span class="lcd-sub ${isActive ? '' : 'off'}">${isActive ? (subCycle !== '---' ? subCycle : machineState) : machineState}</span>
+                <span class="lcd-sub" data-field="lcdSub"></span>
                 <span>
-                  ${prewash ? '<span class="lcd-badge">PRE </span>' : ''}
-                  ${isActive ? `<span class="lcd-state">${washTemp}</span>` : ''}
+                  <span class="lcd-badge" data-field="lcdPrewash"></span>
+                  <span class="lcd-state" data-field="lcdState"></span>
                 </span>
               </div>
             </div>
@@ -396,59 +416,158 @@ class GeWasherCard extends HTMLElement {
           <div class="machine-body">
             <div class="drum-container">
               <div class="door-ring"></div>
-              <div class="glow-ring ${isActive ? 'active' : ''}"></div>
-              <div class="door-glass ${isActive ? 'active' : ''}">
-                ${isFill ? '<span class="fill-icon" title="Filling">💧</span>' : ''}
-                <div class="water-level ${isActive && !isSpin ? 'active' : ''}"></div>
-                <div class="drum-inner">
+              <div class="glow-ring" data-field="glowRing"></div>
+              <div class="door-glass" data-field="doorGlass">
+                <span class="fill-icon" data-field="fillIcon" title="Filling">💧</span>
+                <div class="water-level" data-field="waterLevel"></div>
+                <div class="drum-inner" data-field="drumInner">
                   <div class="perf-ring"></div>
-                  <div class="agitator">
-                    <div class="paddle ${isActive ? 'active' : ''}"></div>
-                    <div class="paddle ${isActive ? 'active' : ''}"></div>
-                    <div class="paddle ${isActive ? 'active' : ''}"></div>
+                  <div class="agitator" data-field="agitator">
+                    <div class="paddle" data-field="paddle1"></div>
+                    <div class="paddle" data-field="paddle2"></div>
+                    <div class="paddle" data-field="paddle3"></div>
                   </div>
                   <div class="hub"></div>
                 </div>
               </div>
-              <div class="door-handle ${doorOpen ? 'open' : ''}"></div>
-              ${isLocked ? '<span class="lock-icon" title="Door Locked">🔒</span>' : ''}
+              <div class="door-handle" data-field="doorHandle"></div>
+              <span class="lock-icon" data-field="lockIcon" title="Door Locked">🔒</span>
             </div>
 
             <div class="sensor-grid">
               <div class="sensor-item">
                 <span class="sensor-label">Temp</span>
-                <span class="sensor-value ${isActive ? 'highlight' : ''}">${washTemp}</span>
+                <span class="sensor-value" data-field="sensorTemp"></span>
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Spin</span>
-                <span class="sensor-value">${spinTime}</span>
+                <span class="sensor-value" data-field="sensorSpin"></span>
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Soil</span>
-                <span class="sensor-value">${soilLevel}</span>
+                <span class="sensor-value" data-field="sensorSoil"></span>
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Rinse</span>
-                <span class="sensor-value">${rinseOption !== '---' ? rinseOption : '--'}</span>
+                <span class="sensor-value" data-field="sensorRinse"></span>
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Dispense</span>
-                <span class="sensor-value ${dispensTank === 'Full' ? '' : 'warn'}">${dispensTank}</span>
+                <span class="sensor-value" data-field="sensorDispense"></span>
               </div>
               <div class="sensor-item">
                 <span class="sensor-label">Loads Left</span>
-                <span class="sensor-value">${dispensLoads != null ? dispensLoads : '--'}</span>
+                <span class="sensor-value" data-field="sensorLoads"></span>
               </div>
             </div>
           </div>
 
           <div class="footer">
-            <span class="entity-id">${this._config.prefix}</span>
+            <span class="entity-id" data-field="footerEntity"></span>
             <span class="entity-id">v${GE_WASHER_CARD_VERSION}</span>
           </div>
         </div>
       </ha-card>
     `;
+    this._rendered = true;
+  }
+
+  // Get a data-field element
+  _el(field) {
+    return this.shadowRoot?.querySelector(`[data-field="${field}"]`);
+  }
+
+  // Update DOM in-place without replacing innerHTML (preserves animations)
+  _update() {
+    if (!this._hass || !this._config) return;
+
+    // Build DOM on first render
+    if (!this._rendered) {
+      this._buildDom();
+    }
+
+    const d = this._getDisplayData();
+
+    // Update CSS custom properties for dynamic temperature colors
+    const host = this.shadowRoot.host;
+    host.style.setProperty('--tc-color', d.tc.color);
+    host.style.setProperty('--tc-glow', d.tc.glow);
+    host.style.setProperty('--tc-color-66', d.tc.color + '66');
+    host.style.setProperty('--tc-color-55', d.tc.color + '55');
+    host.style.setProperty('--tc-color-22', d.tc.color + '22');
+    host.style.setProperty('--tc-color-15', d.tc.color + '15');
+    host.style.setProperty('--tc-color-11', d.tc.color + '11');
+    host.style.setProperty('--tc-color-08', d.tc.color + '08');
+
+    // Top bar
+    this._el('name').textContent = this._config.name;
+
+    // LCD
+    const lcdScreen = this._el('lcdScreen');
+    lcdScreen.className = `lcd-screen ${d.isActive ? 'active' : ''}`;
+
+    const lcdCycle = this._el('lcdCycle');
+    lcdCycle.textContent = d.lcdCycleText;
+    lcdCycle.className = `lcd-cycle ${d.isActive ? '' : 'off'}`;
+
+    const lcdTime = this._el('lcdTime');
+    lcdTime.textContent = d.lcdTimeText;
+    lcdTime.style.display = d.lcdTimeText ? '' : 'none';
+
+    const lcdSub = this._el('lcdSub');
+    lcdSub.textContent = d.lcdSubText;
+    lcdSub.className = `lcd-sub ${d.isActive ? '' : 'off'}`;
+
+    this._el('lcdPrewash').textContent = d.prewash ? 'PRE ' : '';
+    const lcdState = this._el('lcdState');
+    lcdState.textContent = d.isActive ? d.washTemp : '';
+    lcdState.style.display = d.isActive ? '' : 'none';
+
+    // Glow ring
+    this._el('glowRing').className = `glow-ring ${d.isActive ? 'active' : ''}`;
+
+    // Door glass
+    this._el('doorGlass').className = `door-glass ${d.isActive ? 'active' : ''}`;
+
+    // Fill icon
+    this._el('fillIcon').className = `fill-icon ${d.isFill ? 'visible' : ''}`;
+
+    // Water level
+    this._el('waterLevel').className = `water-level ${(d.isActive && !d.isSpin) ? 'active' : ''}`;
+
+    // Drum and agitator — update class to toggle animations via CSS
+    this._el('drumInner').className = d.drumClass;
+    this._el('agitator').className = d.agitatorClass;
+
+    // Paddles
+    const paddleClass = `paddle ${d.isActive ? 'active' : ''}`;
+    this._el('paddle1').className = paddleClass;
+    this._el('paddle2').className = paddleClass;
+    this._el('paddle3').className = paddleClass;
+
+    // Door handle
+    this._el('doorHandle').className = `door-handle ${d.doorOpen ? 'open' : ''}`;
+
+    // Lock icon
+    this._el('lockIcon').className = `lock-icon ${d.isLocked ? 'visible' : ''}`;
+
+    // Sensor grid
+    const sensorTemp = this._el('sensorTemp');
+    sensorTemp.textContent = d.washTemp;
+    sensorTemp.className = `sensor-value ${d.isActive ? 'highlight' : ''}`;
+
+    this._el('sensorSpin').textContent = d.spinTime;
+    this._el('sensorSoil').textContent = d.soilLevel;
+    this._el('sensorRinse').textContent = d.rinseOption;
+
+    const sensorDispense = this._el('sensorDispense');
+    sensorDispense.textContent = d.dispensTank;
+    sensorDispense.className = `sensor-value ${d.dispensTankWarn ? 'warn' : ''}`;
+
+    this._el('sensorLoads').textContent = d.dispensLoads;
+
+    // Footer
+    this._el('footerEntity').textContent = this._config.prefix;
   }
 }
 
