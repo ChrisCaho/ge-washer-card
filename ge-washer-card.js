@@ -1,4 +1,4 @@
-const GE_WASHER_CARD_VERSION = '1.4.1';
+const GE_WASHER_CARD_VERSION = '1.5.0';
 console.log(`GE Washer Card v${GE_WASHER_CARD_VERSION}: loading...`);
 
 class GeWasherCard extends HTMLElement {
@@ -84,7 +84,9 @@ class GeWasherCard extends HTMLElement {
     const doorLocked = this._getBinary('washer_door_lock') === 'on';
     const prewash = this._getBinary('washer_prewash') === 'on';
 
-    const isActive = machineState.toLowerCase() !== 'off';
+    const msLower = machineState.toLowerCase();
+    const isActive = !['off', 'unavailable', 'unknown'].includes(msLower);
+    const isDone = msLower.includes('end') || msLower.includes('complete');
     const isDelay = delayRemaining && parseFloat(delayRemaining) > 0;
     const isSpin = subCycle.toLowerCase().includes('spin');
     const isRinse = subCycle.toLowerCase().includes('rinse');
@@ -113,7 +115,7 @@ class GeWasherCard extends HTMLElement {
     let lcdSubText = isActive ? (subCycle !== '---' ? subCycle : machineState) : machineState;
 
     return {
-      isActive, isDelay, isSpin, isRinse, isFill, isLocked,
+      isActive, isDone, isDelay, isSpin, isRinse, isFill, isLocked,
       doorOpen, prewash,
       tc,
       drumClass, agitatorClass,
@@ -381,6 +383,15 @@ class GeWasherCard extends HTMLElement {
         .sensor-value.highlight { color: var(--tc-color); }
         .sensor-value.warn { color: #ff9944; }
 
+        /* DONE badge */
+        .lcd-done {
+          font-family: 'Courier New', monospace; font-size: 14px; font-weight: 700;
+          color: #4caf50; text-shadow: 0 0 8px rgba(76,175,80,0.6);
+          letter-spacing: 2px; display: none;
+        }
+        .lcd-done.visible { display: inline; animation: donePulse 2s ease-in-out infinite; }
+        @keyframes donePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
         /* Footer */
         .footer {
           margin-top: 4px; padding: 4px 4px 0;
@@ -388,6 +399,21 @@ class GeWasherCard extends HTMLElement {
           display: flex; justify-content: space-between; align-items: center;
         }
         .entity-id { font-size: 9px; color: #444; font-family: monospace; }
+
+        /* Responsive drum for narrow viewports */
+        @media (max-width: 360px) {
+          .drum-container { width: min(200px, 55vw); height: min(200px, 55vw); }
+        }
+
+        /* Accessibility: reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+          .drum-inner.spinning, .agitator.spinning, .agitator.agitating,
+          .glow-ring.active, .fill-icon, .water-level.active, .lcd-done.visible {
+            animation: none !important;
+          }
+          .drum-inner.spinning { transform: translate(-50%, -50%) rotate(45deg); }
+          .glow-ring.active { opacity: 0.8; }
+        }
       </style>
 
       <ha-card>
@@ -406,6 +432,7 @@ class GeWasherCard extends HTMLElement {
               <div class="lcd-row">
                 <span class="lcd-sub" data-field="lcdSub"></span>
                 <span>
+                  <span class="lcd-done" data-field="lcdDone">DONE</span>
                   <span class="lcd-badge" data-field="lcdPrewash"></span>
                   <span class="lcd-state" data-field="lcdState"></span>
                 </span>
@@ -518,6 +545,7 @@ class GeWasherCard extends HTMLElement {
     lcdSub.textContent = d.lcdSubText;
     lcdSub.className = `lcd-sub ${d.isActive ? '' : 'off'}`;
 
+    this._el('lcdDone').className = `lcd-done ${d.isDone ? 'visible' : ''}`;
     this._el('lcdPrewash').textContent = d.prewash ? 'PRE ' : '';
     const lcdState = this._el('lcdState');
     lcdState.textContent = d.isActive ? d.washTemp : '';
